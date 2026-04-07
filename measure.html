@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>AR Measure Tool - Full Haptic</title>
+    <title>AR Measure Tool - REAL Haptic</title>
     <style>
         * {
             margin: 0;
@@ -44,6 +44,40 @@
             height: 100%;
             z-index: 10;
             touch-action: none;
+        }
+        
+        /* HAPTIC ANIMATION - This actually works on iPhone! */
+        @keyframes hapticLight {
+            0% { background-color: rgba(255, 255, 255, 0); }
+            15% { background-color: rgba(255, 255, 255, 0.15); }
+            30% { background-color: rgba(255, 255, 255, 0); }
+            100% { background-color: rgba(255, 255, 255, 0); }
+        }
+        
+        @keyframes hapticMedium {
+            0% { background-color: rgba(255, 255, 255, 0); }
+            15% { background-color: rgba(255, 255, 255, 0.3); }
+            30% { background-color: rgba(255, 255, 255, 0); }
+            100% { background-color: rgba(255, 255, 255, 0); }
+        }
+        
+        @keyframes hapticHeavy {
+            0% { background-color: rgba(255, 215, 0, 0); }
+            15% { background-color: rgba(255, 215, 0, 0.4); }
+            30% { background-color: rgba(255, 215, 0, 0); }
+            100% { background-color: rgba(255, 215, 0, 0); }
+        }
+        
+        .haptic-flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+            animation-duration: 0.1s;
+            animation-fill-mode: forwards;
         }
         
         .overlay {
@@ -347,94 +381,50 @@
         let currentDistance = 0;
         let calibrationFactor = 1.0;
         
-        // Drag state for NEW measurements
+        // Drag state
         let isDragging = false;
         let dragStart = null;
         let dragCurrent = null;
         
-        // Edit state for EXISTING measurements
+        // Edit state
         let isEditing = false;
         let editingMeasurement = null;
-        let editingPoint = null; // 'start' or 'end'
+        let editingPoint = null;
         
         // Camera parameters
         let focalLength = 800;
         let referenceWidth = 30;
         
-        // Throttle haptic to avoid overwhelming (every ~50ms max)
-        let lastHapticTime = 0;
-        
-        // ==================== Haptic Feedback (Visual + Vibration) ====================
+        // ==================== REAL HAPTIC FEEDBACK (CSS Animation) ====================
         function hapticLight() {
-            const now = Date.now();
-            if (now - lastHapticTime < 30) return; // Throttle to 30ms
-            lastHapticTime = now;
-            
-            // Visual flash
             const flash = document.createElement('div');
-            flash.style.position = 'fixed';
-            flash.style.top = '0';
-            flash.style.left = '0';
-            flash.style.width = '100%';
-            flash.style.height = '100%';
-            flash.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
-            flash.style.pointerEvents = 'none';
-            flash.style.zIndex = '9999';
-            flash.style.transition = 'opacity 0.08s';
+            flash.className = 'haptic-flash';
+            flash.style.animationName = 'hapticLight';
             document.body.appendChild(flash);
-            setTimeout(() => {
-                flash.style.opacity = '0';
-                setTimeout(() => flash.remove(), 80);
-            }, 8);
-            
-            // Vibration for supported devices
-            if (navigator.vibrate) {
-                navigator.vibrate(5);
-            }
+            setTimeout(() => flash.remove(), 100);
         }
         
         function hapticMedium() {
             const flash = document.createElement('div');
-            flash.style.position = 'fixed';
-            flash.style.top = '0';
-            flash.style.left = '0';
-            flash.style.width = '100%';
-            flash.style.height = '100%';
-            flash.style.backgroundColor = 'rgba(255, 255, 255, 0.25)';
-            flash.style.pointerEvents = 'none';
-            flash.style.zIndex = '9999';
-            flash.style.transition = 'opacity 0.1s';
+            flash.className = 'haptic-flash';
+            flash.style.animationName = 'hapticMedium';
             document.body.appendChild(flash);
-            setTimeout(() => {
-                flash.style.opacity = '0';
-                setTimeout(() => flash.remove(), 100);
-            }, 10);
-            
-            if (navigator.vibrate) {
-                navigator.vibrate(15);
-            }
+            setTimeout(() => flash.remove(), 100);
         }
         
         function hapticHeavy() {
             const flash = document.createElement('div');
-            flash.style.position = 'fixed';
-            flash.style.top = '0';
-            flash.style.left = '0';
-            flash.style.width = '100%';
-            flash.style.height = '100%';
-            flash.style.backgroundColor = 'rgba(255, 215, 0, 0.35)';
-            flash.style.pointerEvents = 'none';
-            flash.style.zIndex = '9999';
-            flash.style.transition = 'opacity 0.15s';
+            flash.className = 'haptic-flash';
+            flash.style.animationName = 'hapticHeavy';
             document.body.appendChild(flash);
-            setTimeout(() => {
-                flash.style.opacity = '0';
-                setTimeout(() => flash.remove(), 150);
-            }, 10);
+            setTimeout(() => flash.remove(), 150);
             
-            if (navigator.vibrate) {
-                navigator.vibrate(30);
-            }
+            // Also add a subtle scale to the distance card for extra feedback
+            const card = document.querySelector('.distance-card');
+            card.style.transform = 'scale(0.98)';
+            setTimeout(() => {
+                card.style.transform = 'scale(1)';
+            }, 100);
         }
         
         // ==================== Camera ====================
@@ -479,12 +469,10 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            // Draw saved measurements
             measurements.forEach(measure => {
                 drawMeasurement(measure);
             });
             
-            // Draw current drag line (new measurement)
             if (isDragging && dragStart && dragCurrent) {
                 drawDragLine(dragStart, dragCurrent);
                 
@@ -501,7 +489,6 @@
                 drawPoint(dragCurrent, '#FF5252', 'B', 'End');
             }
             
-            // Draw editing highlight
             if (isEditing && editingMeasurement) {
                 ctx.save();
                 ctx.shadowBlur = 15;
@@ -571,7 +558,6 @@
             drawText(`${measure.distance.toFixed(1)} cm`, midX, midY - 15, '#9C27B0', 'bold 16px');
         }
         
-        // ==================== Measurement Calculation ====================
         function calculateDistance(pixelDistance) {
             let estimatedCm = (pixelDistance / focalLength) * referenceWidth;
             estimatedCm *= calibrationFactor;
@@ -600,9 +586,8 @@
             `).join('');
         }
         
-        // ==================== Find point under finger ====================
         function findPointAt(x, y) {
-            const threshold = 40; // Pixels tolerance for easier editing
+            const threshold = 40;
             for (let i = 0; i < measurements.length; i++) {
                 const m = measurements[i];
                 
@@ -631,7 +616,6 @@
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            // Check if tapping on an existing point
             const hit = findPointAt(x, y);
             
             if (hit) {
@@ -640,14 +624,14 @@
                 editingPoint = hit.point;
                 instruction.textContent = `✏️ Moving ${editingPoint === 'start' ? 'Point A' : 'Point B'} - drag to reposition`;
                 status.textContent = 'Drag to move the point';
-                hapticMedium(); // Haptic on edit start
+                hapticMedium();
             } else {
                 isDragging = true;
                 dragStart = { x, y };
                 dragCurrent = { x, y };
                 instruction.textContent = '📍 DRAG to measure distance';
                 status.textContent = 'Drag to draw line';
-                hapticLight(); // Haptic on drag start
+                hapticLight();
             }
         }
         
@@ -658,7 +642,7 @@
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            // 🔥 HAPTIC ON EVERY MOVE 🔥
+            // HAPTIC ON EVERY MOVE!
             hapticLight();
             
             if (isDragging && dragStart) {
@@ -705,17 +689,16 @@
                 instruction.textContent = '✓ Saved! Press and drag again to measure';
                 status.textContent = `${finalDistance.toFixed(1)} cm measured`;
                 updateHistoryDisplay();
-                hapticHeavy(); // Heavy haptic on completion
+                hapticHeavy();
             }
             
             if (isEditing && editingMeasurement) {
                 const finalDistance = editingMeasurement.distance;
                 instruction.textContent = '✓ Point moved! Press and drag for new measurement';
                 status.textContent = `Updated: ${finalDistance.toFixed(1)} cm`;
-                hapticHeavy(); // Heavy haptic on edit complete
+                hapticHeavy();
             }
             
-            // Reset all states
             isDragging = false;
             isEditing = false;
             dragStart = null;
@@ -723,7 +706,6 @@
             editingMeasurement = null;
             editingPoint = null;
             
-            // Reset instruction after delay
             setTimeout(() => {
                 if (!isDragging && !isEditing) {
                     instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
@@ -754,7 +736,7 @@
             const handleCalMove = (e) => {
                 if (!calStart) return;
                 e.preventDefault();
-                hapticLight(); // Haptic during calibration drag
+                hapticLight();
                 const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
                 const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
@@ -854,7 +836,6 @@
             }, 2000);
         }
         
-        // ==================== UI Actions ====================
         function toggleHistory() {
             historyPanel.classList.toggle('open');
             hapticLight();
@@ -889,11 +870,10 @@
         window.addEventListener('resize', resizeCanvas);
         window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
         
-        // Initialize
         initCamera();
         updateHistoryDisplay();
         
-        console.log('AR Measure Tool Ready - FULL HAPTIC on every drag!');
+        console.log('AR Measure Tool Ready - CSS HAPTIC works on iPhone!');
     </script>
 </body>
 </html>
