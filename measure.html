@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>AR Measure Tool - Drag to Measure</title>
+    <title>AR Measure Tool - Drag & Edit</title>
     <style>
         * {
             margin: 0;
@@ -279,17 +279,6 @@
             pointer-events: none;
             backdrop-filter: blur(4px);
         }
-        
-        /* Drag line preview */
-        .drag-line {
-            position: fixed;
-            background: rgba(255, 215, 0, 0.5);
-            height: 4px;
-            transform-origin: left center;
-            pointer-events: none;
-            z-index: 25;
-            display: none;
-        }
     </style>
 </head>
 <body>
@@ -358,18 +347,23 @@
         let currentDistance = 0;
         let calibrationFactor = 1.0;
         
-        // Drag state
+        // Drag state for NEW measurements
         let isDragging = false;
         let dragStart = null;
         let dragCurrent = null;
+        
+        // Edit state for EXISTING measurements
+        let isEditing = false;
+        let editingMeasurement = null;
+        let editingPoint = null; // 'start' or 'end'
         
         // Camera parameters
         let focalLength = 800;
         let referenceWidth = 30;
         
-        // ==================== iOS Haptic Feedback (Light/Medium/Heavy) ====================
+        // ==================== Haptic Feedback (Visual + Vibration) ====================
         function hapticLight() {
-            // Create a subtle DOM element animation as visual haptic
+            // Visual flash
             const flash = document.createElement('div');
             flash.style.position = 'fixed';
             flash.style.top = '0';
@@ -386,12 +380,7 @@
                 setTimeout(() => flash.remove(), 100);
             }, 10);
             
-            // Try to use any available haptic API
-            if (window.webkit && window.webkit.messageHandlers) {
-                // WebKit bridge - skip
-            }
-            
-            // Try vibration as fallback
+            // Vibration for supported devices
             if (navigator.vibrate) {
                 navigator.vibrate(10);
             }
@@ -458,7 +447,7 @@
                 requestAnimationFrame(draw);
                 
                 status.textContent = 'Camera ready! Press and drag to measure';
-                instruction.textContent = '👆 PRESS AND DRAG to measure';
+                instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
                 hapticLight();
                 
             } catch (err) {
@@ -488,25 +477,31 @@
                 drawMeasurement(measure);
             });
             
-            // Draw current drag line
+            // Draw current drag line (new measurement)
             if (isDragging && dragStart && dragCurrent) {
                 drawDragLine(dragStart, dragCurrent);
                 
-                // Calculate and show live distance
                 const dx = dragStart.x - dragCurrent.x;
                 const dy = dragStart.y - dragCurrent.y;
                 const pixelDistance = Math.sqrt(dx * dx + dy * dy);
                 const liveDistance = calculateDistance(pixelDistance);
                 
-                // Draw live distance at midpoint
                 const midX = (dragStart.x + dragCurrent.x) / 2;
                 const midY = (dragStart.y + dragCurrent.y) / 2 - 20;
                 drawText(`${liveDistance.toFixed(1)} cm`, midX, midY, '#FFD700', 'bold 20px');
                 
-                // Draw start point
                 drawPoint(dragStart, '#4CAF50', 'A', 'Start');
-                // Draw end point (current)
                 drawPoint(dragCurrent, '#FF5252', 'B', 'End');
+            }
+            
+            // Draw editing highlight
+            if (isEditing && editingMeasurement) {
+                ctx.save();
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#FFD700';
+                drawPoint(editingMeasurement.start, '#FFD700', 'A', 'Start');
+                drawPoint(editingMeasurement.end, '#FFD700', 'B', 'End');
+                ctx.restore();
             }
             
             requestAnimationFrame(draw);
@@ -514,7 +509,7 @@
         
         function drawPoint(point, color, label, text) {
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 14, 0, 2 * Math.PI);
+            ctx.arc(point.x, point.y, 16, 0, 2 * Math.PI);
             ctx.fillStyle = color + '80';
             ctx.fill();
             ctx.strokeStyle = color;
@@ -569,11 +564,19 @@
             drawText(`${measure.distance.toFixed(1)} cm`, midX, midY - 15, '#9C27B0', 'bold 16px');
         }
         
-        // ==================== Measurement ====================
+        // ==================== Measurement Calculation ====================
         function calculateDistance(pixelDistance) {
             let estimatedCm = (pixelDistance / focalLength) * referenceWidth;
             estimatedCm *= calibrationFactor;
             return Math.min(Math.max(estimatedCm, 0), 500);
+        }
+        
+        function updateMeasurementDistance(measure) {
+            const dx = measure.start.x - measure.end.x;
+            const dy = measure.start.y - measure.end.y;
+            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+            measure.distance = calculateDistance(pixelDistance);
+            return measure.distance;
         }
         
         function updateHistoryDisplay() {
@@ -590,89 +593,141 @@
             `).join('');
         }
         
-        // ==================== Drag to Measure ====================
+        // ==================== Find point under finger ====================
+        function findPointAt(x, y) {
+            const threshold = 30; // Pixels tolerance
+            for (let i = 0; i < measurements.length; i++) {
+                const m = measurements[i];
+                
+                // Check start point
+                const startDx = m.start.x - x;
+                const startDy = m.start.y - y;
+                const startDist = Math.sqrt(startDx * startDx + startDy * startDy);
+                if (startDist < threshold) {
+                    return { measurement: m, point: 'start', index: i };
+                }
+                
+                // Check end point
+                const endDx = m.end.x - x;
+                const endDy = m.end.y - y;
+                const endDist = Math.sqrt(endDx * endDx + endDy * endDy);
+                if (endDist < threshold) {
+                    return { measurement: m, point: 'end', index: i };
+                }
+            }
+            return null;
+        }
+        
+        // ==================== Touch Handling ====================
         function onTouchStart(e) {
             e.preventDefault();
-            
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            isDragging = true;
-            dragStart = { x, y };
-            dragCurrent = { x, y };
+            // Check if tapping on an existing point
+            const hit = findPointAt(x, y);
             
-            instruction.textContent = '📍 DRAG to measure distance';
-            status.textContent = 'Drag to draw line';
-            hapticLight();
+            if (hit) {
+                // Enter edit mode
+                isEditing = true;
+                editingMeasurement = hit.measurement;
+                editingPoint = hit.point;
+                instruction.textContent = `✏️ Moving ${editingPoint === 'start' ? 'Point A' : 'Point B'} - drag to reposition`;
+                status.textContent = 'Drag to move the point';
+                hapticMedium();
+            } else {
+                // Start new measurement
+                isDragging = true;
+                dragStart = { x, y };
+                dragCurrent = { x, y };
+                instruction.textContent = '📍 DRAG to measure distance';
+                status.textContent = 'Drag to draw line';
+                hapticLight();
+            }
         }
         
         function onTouchMove(e) {
-            if (!isDragging) return;
             e.preventDefault();
-            
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            dragCurrent = { x, y };
+            // Haptic feedback on every move (for both new and edit)
+            hapticLight();
             
-            // Update live distance display
-            const dx = dragStart.x - dragCurrent.x;
-            const dy = dragStart.y - dragCurrent.y;
-            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-            const liveDistance = calculateDistance(pixelDistance);
-            distanceValue.textContent = liveDistance.toFixed(2);
+            if (isDragging) {
+                dragCurrent = { x, y };
+                const dx = dragStart.x - dragCurrent.x;
+                const dy = dragStart.y - dragCurrent.y;
+                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+                const liveDistance = calculateDistance(pixelDistance);
+                distanceValue.textContent = liveDistance.toFixed(2);
+            }
             
-            hapticLight(); // Light feedback while dragging
+            if (isEditing && editingMeasurement && editingPoint) {
+                // Update the point position
+                if (editingPoint === 'start') {
+                    editingMeasurement.start = { x, y };
+                } else {
+                    editingMeasurement.end = { x, y };
+                }
+                // Recalculate distance
+                const newDistance = updateMeasurementDistance(editingMeasurement);
+                distanceValue.textContent = newDistance.toFixed(2);
+                status.textContent = `${newDistance.toFixed(1)} cm (updated)`;
+                updateHistoryDisplay();
+            }
         }
         
         function onTouchEnd(e) {
-            if (!isDragging || !dragStart || !dragCurrent) {
-                isDragging = false;
-                dragStart = null;
-                dragCurrent = null;
-                return;
-            }
-            
             e.preventDefault();
             
-            // Calculate final distance
-            const dx = dragStart.x - dragCurrent.x;
-            const dy = dragStart.y - dragCurrent.y;
-            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-            currentDistance = calculateDistance(pixelDistance);
+            if (isDragging && dragStart && dragCurrent) {
+                // Complete new measurement
+                const dx = dragStart.x - dragCurrent.x;
+                const dy = dragStart.y - dragCurrent.y;
+                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+                const finalDistance = calculateDistance(pixelDistance);
+                
+                const measurement = {
+                    id: measurements.length + 1,
+                    start: { ...dragStart },
+                    end: { ...dragCurrent },
+                    distance: finalDistance,
+                    time: new Date().toLocaleTimeString()
+                };
+                
+                measurements.unshift(measurement);
+                distanceValue.textContent = finalDistance.toFixed(2);
+                instruction.textContent = '✓ Saved! Press and drag again to measure';
+                status.textContent = `${finalDistance.toFixed(1)} cm measured`;
+                updateHistoryDisplay();
+                hapticHeavy();
+            }
             
-            // Save measurement
-            const measurement = {
-                id: measurements.length + 1,
-                start: { ...dragStart },
-                end: { ...dragCurrent },
-                distance: currentDistance,
-                time: new Date().toLocaleTimeString()
-            };
+            if (isEditing && editingMeasurement) {
+                // Final haptic for edit complete
+                const finalDistance = editingMeasurement.distance;
+                instruction.textContent = '✓ Point moved! Press and drag for new measurement';
+                status.textContent = `Updated: ${finalDistance.toFixed(1)} cm`;
+                hapticHeavy();
+            }
             
-            measurements.unshift(measurement);
-            distanceValue.textContent = currentDistance.toFixed(2);
-            instruction.textContent = '✓ Saved! Press and drag again to measure';
-            status.textContent = `${currentDistance.toFixed(1)} cm measured`;
-            
-            updateHistoryDisplay();
-            
-            // Heavy haptic for measurement complete
-            hapticHeavy();
-            
-            // Reset drag state
+            // Reset all drag/edit states
             isDragging = false;
+            isEditing = false;
             dragStart = null;
             dragCurrent = null;
+            editingMeasurement = null;
+            editingPoint = null;
             
-            // Reset instruction after 2 seconds
+            // Reset instruction after delay
             setTimeout(() => {
-                if (!isDragging) {
-                    instruction.textContent = '👆 PRESS AND DRAG to measure';
+                if (!isDragging && !isEditing) {
+                    instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
                 }
             }, 2000);
         }
@@ -705,6 +760,7 @@
                 const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
                 const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
                 calEnd = { x, y };
+                hapticLight();
                 
                 // Draw preview
                 ctx.beginPath();
@@ -727,7 +783,6 @@
                 const pixelDistance = Math.sqrt(dx * dx + dy * dy);
                 
                 if (pixelDistance > 30) {
-                    // Use 8.5cm as reference (credit card width)
                     const assumedCm = 8.5;
                     const rawCm = (pixelDistance / focalLength) * referenceWidth;
                     calibrationFactor = assumedCm / rawCm;
@@ -742,7 +797,7 @@
                     }, 3000);
                     
                     status.textContent = `✓ Calibrated! Measurements will be more accurate.`;
-                    instruction.textContent = '👆 PRESS AND DRAG to measure';
+                    instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
                     hapticHeavy();
                 } else {
                     status.textContent = '❌ Drag a longer distance for calibration';
@@ -758,7 +813,6 @@
                 canvas.removeEventListener('touchstart', handleCalStart);
                 canvas.removeEventListener('touchmove', handleCalMove);
                 canvas.removeEventListener('touchend', handleCalEnd);
-                isDragging = false;
             };
             
             canvas.addEventListener('touchstart', handleCalStart);
@@ -798,7 +852,7 @@
             }
             
             setTimeout(() => {
-                if (!isDragging) status.textContent = 'Press and drag to measure';
+                if (!isDragging && !isEditing) status.textContent = 'Press and drag to measure';
             }, 2000);
         }
         
@@ -816,7 +870,7 @@
             measurements = [];
             currentDistance = 0;
             distanceValue.textContent = '0.00';
-            instruction.textContent = '👆 PRESS AND DRAG to measure';
+            instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
             status.textContent = 'All measurements cleared';
             updateHistoryDisplay();
             hapticMedium();
@@ -841,7 +895,7 @@
         initCamera();
         updateHistoryDisplay();
         
-        console.log('AR Measure Tool Ready - Drag to measure with haptic feedback!');
+        console.log('AR Measure Tool Ready - Drag to measure with haptic feedback! Tap circles to edit points!');
     </script>
 </body>
 </html>
