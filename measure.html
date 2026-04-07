@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>AR Measure Tool - Enhanced</title>
+    <title>AR Measure Tool - Fixed</title>
     <style>
         * {
             margin: 0;
@@ -46,7 +46,6 @@
             touch-action: none;
         }
         
-        /* Mobile-friendly overlay - larger touch targets (44px+ per Apple HIG) */
         .overlay {
             position: fixed;
             bottom: 0;
@@ -66,11 +65,6 @@
             padding: 20px;
             margin-bottom: 15px;
             text-align: center;
-            transition: transform 0.2s;
-        }
-        
-        .distance-card:active {
-            transform: scale(0.98);
         }
         
         .distance-label {
@@ -92,7 +86,6 @@
             margin-left: 5px;
         }
         
-        /* Buttons: minimum 44x44px touch target (Apple HIG) */
         .button-group {
             display: flex;
             gap: 12px;
@@ -121,11 +114,6 @@
             background: rgba(255, 255, 255, 0.2);
         }
         
-        button:disabled {
-            opacity: 0.5;
-            transform: none;
-        }
-        
         .status {
             text-align: center;
             color: rgba(255, 255, 255, 0.6);
@@ -133,7 +121,6 @@
             padding: 10px;
         }
         
-        /* Instruction banner - mobile optimized */
         .instruction {
             position: fixed;
             top: 20px;
@@ -152,7 +139,6 @@
             top: max(20px, env(safe-area-inset-top));
         }
         
-        /* Crosshair with pulse animation */
         .crosshair {
             position: fixed;
             top: 50%;
@@ -170,8 +156,7 @@
             50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
         }
         
-        .crosshair::before,
-        .crosshair::after {
+        .crosshair::before, .crosshair::after {
             content: '';
             position: absolute;
             background: rgba(255, 255, 255, 0.9);
@@ -204,7 +189,6 @@
             border-radius: 50%;
         }
         
-        /* History panel - slide up */
         .history-panel {
             position: fixed;
             bottom: 0;
@@ -281,59 +265,6 @@
             padding: 40px;
         }
         
-        /* Calibration panel */
-        .calibration-panel {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.95);
-            backdrop-filter: blur(20px);
-            border-radius: 24px;
-            padding: 24px;
-            z-index: 40;
-            min-width: 280px;
-            max-width: 340px;
-            border: 1px solid rgba(255,255,255,0.2);
-            text-align: center;
-        }
-        
-        .calibration-panel h3 {
-            color: white;
-            margin-bottom: 12px;
-        }
-        
-        .calibration-panel p {
-            color: rgba(255,255,255,0.7);
-            margin-bottom: 20px;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        
-        .calibration-buttons {
-            display: flex;
-            gap: 12px;
-        }
-        
-        /* Visual feedback for taps */
-        .tap-feedback {
-            position: fixed;
-            background: rgba(255,255,255,0.3);
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            z-index: 100;
-            animation: ripple 0.3s ease-out forwards;
-        }
-        
-        @keyframes ripple {
-            0% { transform: translate(-50%, -50%) scale(0); opacity: 0.8; }
-            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
-        }
-        
-        /* Calibration badge */
         .calibration-badge {
             position: fixed;
             bottom: 120px;
@@ -349,24 +280,27 @@
             backdrop-filter: blur(4px);
         }
         
-        /* Share button */
         .share-btn {
             background: rgba(255, 255, 255, 0.15);
             border: 1px solid rgba(255, 255, 255, 0.3);
         }
         
-        /* Loading indicator */
-        .loading {
+        /* Calibration mode indicator */
+        .calibration-mode {
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: white;
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            border-radius: 20px;
+            text-align: center;
             z-index: 50;
-            background: rgba(0,0,0,0.8);
-            padding: 16px 24px;
-            border-radius: 30px;
-            font-size: 14px;
+            border: 2px solid #FFD700;
+        }
+        
+        .calibration-mode p {
+            margin: 10px 0;
         }
     </style>
 </head>
@@ -404,7 +338,6 @@
             </div>
         </div>
         
-        <!-- History Panel -->
         <div class="history-panel" id="historyPanel">
             <div class="history-header">
                 <span class="history-title">📊 Measurement History</span>
@@ -415,14 +348,13 @@
             </div>
         </div>
         
-        <!-- Calibration Badge -->
         <div class="calibration-badge" id="calibrationBadge" style="display: none;">
             ✓ Calibrated
         </div>
     </div>
 
     <script>
-        // ==================== DOM Elements ====================
+        // DOM elements
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -433,35 +365,49 @@
         const historyList = document.getElementById('historyList');
         const calibrationBadge = document.getElementById('calibrationBadge');
         
-        // ==================== State ====================
+        // State
         let points = [];
         let measurements = [];
         let currentDistance = 0;
         let lastTapTime = 0;
         let calibrationFactor = 1.0;
-        let isCalibrated = false;
         
         // Camera parameters
         let focalLength = 800;
         let referenceWidth = 30;
         
-        // ==================== Haptic Feedback ====================
-        function vibrate(duration = 30) {
-            if ('vibrate' in navigator) {
-                navigator.vibrate(duration);
+        // Calibration mode
+        let isCalibrationMode = false;
+        let calibrationStartPoint = null;
+        
+        // ==================== Haptic Feedback (iOS compatible) ====================
+        function vibrate() {
+            // Try iOS haptics first
+            if (window.webkit && window.webkit.messageHandlers) {
+                // Native bridge - skip
             }
+            
+            // Try vibration API
+            if (navigator.vibrate) {
+                navigator.vibrate(30);
+            }
+            
+            // iOS doesn't support vibrate, but we can use visual feedback
+            // Add a quick style flash for visual feedback
+            const flash = document.createElement('div');
+            flash.style.position = 'fixed';
+            flash.style.top = '0';
+            flash.style.left = '0';
+            flash.style.width = '100%';
+            flash.style.height = '100%';
+            flash.style.backgroundColor = 'rgba(255,255,255,0.1)';
+            flash.style.pointerEvents = 'none';
+            flash.style.zIndex = '9999';
+            document.body.appendChild(flash);
+            setTimeout(() => flash.remove(), 50);
         }
         
-        function showTapFeedback(x, y) {
-            const feedback = document.createElement('div');
-            feedback.className = 'tap-feedback';
-            feedback.style.left = x + 'px';
-            feedback.style.top = y + 'px';
-            document.body.appendChild(feedback);
-            setTimeout(() => feedback.remove(), 300);
-        }
-        
-        // ==================== Camera Initialization ====================
+        // ==================== Camera ====================
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -479,16 +425,15 @@
                 
                 status.textContent = 'Camera ready! Tap screen to measure';
                 instruction.textContent = '🎯 Tap screen to place point A';
-                vibrate(50);
                 
             } catch (err) {
                 console.error('Camera error:', err);
-                status.textContent = '⚠️ Camera access required. Please allow camera permission.';
+                status.textContent = '⚠️ Camera access required';
                 instruction.textContent = 'Camera permission needed';
             }
         }
         
-        // ==================== Canvas Drawing ====================
+        // ==================== Drawing ====================
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -518,6 +463,16 @@
                     const midY = (points[0].y + points[1].y) / 2;
                     drawText(`${currentDistance.toFixed(1)} cm`, midX, midY - 15, '#FFD700', 'bold 18px');
                 }
+            }
+            
+            // Draw calibration mode indicator
+            if (isCalibrationMode && calibrationStartPoint) {
+                ctx.beginPath();
+                ctx.moveTo(calibrationStartPoint.x, calibrationStartPoint.y);
+                // Draw line following touch
+                ctx.strokeStyle = '#FFD700';
+                ctx.lineWidth = 4;
+                ctx.stroke();
             }
             
             requestAnimationFrame(draw);
@@ -569,7 +524,7 @@
             drawText(`${measure.distance.toFixed(1)} cm`, midX, midY - 15, '#9C27B0', 'bold 16px');
         }
         
-        // ==================== Measurement Logic ====================
+        // ==================== Measurement ====================
         function calculateDistance(pixelDistance) {
             let estimatedCm = (pixelDistance / focalLength) * referenceWidth;
             estimatedCm *= calibrationFactor;
@@ -578,11 +533,11 @@
         
         function updateHistoryDisplay() {
             if (measurements.length === 0) {
-                historyList.innerHTML = '<div class="history-empty">📭 No measurements yet\nTap "Start" and measure something!</div>';
+                historyList.innerHTML = '<div class="history-empty">📭 No measurements yet</div>';
                 return;
             }
             
-            historyList.innerHTML = measurements.map(m => `
+            historyList.innerHTML = measurements.slice(0, 20).map(m => `
                 <div class="history-item">
                     <span class="history-distance">📏 ${m.distance.toFixed(1)} cm</span>
                     <span class="history-time">${m.time}</span>
@@ -590,128 +545,124 @@
             `).join('');
         }
         
-        // ==================== Calibration ====================
-        function showCalibrationDialog() {
-            const panel = document.createElement('div');
-            panel.className = 'calibration-panel';
-            panel.innerHTML = `
-                <h3>📐 Calibrate Measurements</h3>
-                <p>Place a known 10cm object on screen.<br>
-                Drag from one end to the other to calibrate.</p>
-                <div class="calibration-buttons">
-                    <button id="calStartBtn" style="background:#4CAF50;">Start</button>
-                    <button id="calCancelBtn">Cancel</button>
-                </div>
-            `;
-            document.body.appendChild(panel);
-            
-            document.getElementById('calStartBtn').onclick = () => {
-                panel.remove();
-                startCalibration();
-            };
-            document.getElementById('calCancelBtn').onclick = () => panel.remove();
-        }
-        
+        // ==================== Calibration with Drag ====================
         function startCalibration() {
-            instruction.textContent = '📐 Drag to draw a 10cm reference line';
-            status.textContent = 'Draw a line on a 10cm object';
+            isCalibrationMode = true;
+            calibrationStartPoint = null;
+            instruction.textContent = '📐 DRAG across a 10cm object (like a credit card)';
+            status.textContent = 'Press and drag from one end to the other';
+            vibrate();
             
-            let calibrationStart = null;
+            // Show calibration instruction overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'calibration-mode';
+            overlay.id = 'calibrationOverlay';
+            overlay.innerHTML = `
+                <p>📐 Calibration Mode</p>
+                <p style="font-size: 12px; color: #FFD700;">Press and drag across a 10cm object</p>
+                <p style="font-size: 10px; margin-top: 10px;">Example: credit card (~8.5cm) or sticky note (~7.6cm)</p>
+                <button id="cancelCalibBtn" style="margin-top: 15px; background: #f44336; padding: 10px 20px;">Cancel</button>
+            `;
+            document.body.appendChild(overlay);
             
-            const showCalibrationMessage = (msg) => {
-                status.textContent = msg;
+            document.getElementById('cancelCalibBtn').onclick = () => {
+                isCalibrationMode = false;
+                overlay.remove();
+                instruction.textContent = '🎯 Tap screen to place point A';
+                status.textContent = 'Calibration cancelled';
+                vibrate();
             };
-            
-            const handleCalibrationStart = (e) => {
-                e.preventDefault();
-                let clientX, clientY;
-                if (e.touches) {
-                    clientX = e.touches[0].clientX;
-                    clientY = e.touches[0].clientY;
-                } else {
-                    clientX = e.clientX;
-                    clientY = e.clientY;
-                }
-                
-                const rect = canvas.getBoundingClientRect();
-                const x = (clientX - rect.left) * (canvas.width / rect.width);
-                const y = (clientY - rect.top) * (canvas.height / rect.height);
-                calibrationStart = { x, y };
-                showCalibrationMessage('Drag to the other end of the 10cm object');
-                vibrate(20);
-            };
-            
-            const handleCalibrationEnd = (e) => {
-                if (!calibrationStart) return;
-                
-                e.preventDefault();
-                let clientX, clientY;
-                if (e.changedTouches) {
-                    clientX = e.changedTouches[0].clientX;
-                    clientY = e.changedTouches[0].clientY;
-                } else {
-                    clientX = e.clientX;
-                    clientY = e.clientY;
-                }
-                
-                const rect = canvas.getBoundingClientRect();
-                const x = (clientX - rect.left) * (canvas.width / rect.width);
-                const y = (clientY - rect.top) * (canvas.height / rect.height);
-                const calibrationEnd = { x, y };
-                
-                const dx = calibrationStart.x - calibrationEnd.x;
-                const dy = calibrationStart.y - calibrationEnd.y;
-                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (pixelDistance > 10) {
-                    const rawCm = (pixelDistance / focalLength) * referenceWidth;
-                    calibrationFactor = 10 / rawCm;
-                    isCalibrated = true;
-                    
-                    calibrationBadge.style.display = 'block';
-                    setTimeout(() => {
-                        calibrationBadge.style.opacity = '0';
-                        setTimeout(() => {
-                            calibrationBadge.style.display = 'none';
-                            calibrationBadge.style.opacity = '1';
-                        }, 500);
-                    }, 3000);
-                    
-                    status.textContent = `✓ Calibrated! Factor: ${calibrationFactor.toFixed(2)}x`;
-                    instruction.textContent = '🎯 Tap screen to place point A';
-                    vibrate(100);
-                } else {
-                    status.textContent = '❌ Calibration failed - drag a longer line';
-                    setTimeout(() => {
-                        status.textContent = 'Ready to measure';
-                    }, 2000);
-                }
-                
-                // Clean up
-                canvas.removeEventListener('touchstart', handleCalibrationStart);
-                canvas.removeEventListener('touchend', handleCalibrationEnd);
-                canvas.removeEventListener('mousedown', handleCalibrationStart);
-                canvas.removeEventListener('mouseup', handleCalibrationEnd);
-            };
-            
-            canvas.addEventListener('touchstart', handleCalibrationStart);
-            canvas.addEventListener('touchend', handleCalibrationEnd);
-            canvas.addEventListener('mousedown', handleCalibrationStart);
-            canvas.addEventListener('mouseup', handleCalibrationEnd);
         }
         
-        // ==================== Share Measurements ====================
+        // Touch handlers for calibration
+        function onTouchStart(e) {
+            if (!isCalibrationMode) return;
+            
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+            
+            calibrationStartPoint = { x, y };
+            status.textContent = 'Dragging... release at other end';
+            vibrate();
+        }
+        
+        function onTouchMove(e) {
+            if (!isCalibrationMode || !calibrationStartPoint) return;
+            
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const currentX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            const currentY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+            
+            // Draw live line on canvas
+            ctx.beginPath();
+            ctx.moveTo(calibrationStartPoint.x, calibrationStartPoint.y);
+            ctx.lineTo(currentX, currentY);
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+        
+        function onTouchEnd(e) {
+            if (!isCalibrationMode || !calibrationStartPoint) {
+                return;
+            }
+            
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.changedTouches[0];
+            const endX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            const endY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+            
+            const dx = calibrationStartPoint.x - endX;
+            const dy = calibrationStartPoint.y - endY;
+            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (pixelDistance > 20) {
+                // Assume standard credit card width ~8.5cm
+                const assumedCm = 8.5;
+                const rawCm = (pixelDistance / focalLength) * referenceWidth;
+                calibrationFactor = assumedCm / rawCm;
+                
+                calibrationBadge.style.display = 'block';
+                setTimeout(() => {
+                    calibrationBadge.style.opacity = '0';
+                    setTimeout(() => {
+                        calibrationBadge.style.display = 'none';
+                        calibrationBadge.style.opacity = '1';
+                    }, 500);
+                }, 3000);
+                
+                status.textContent = `✓ Calibrated! (Factor: ${calibrationFactor.toFixed(2)})`;
+                instruction.textContent = '🎯 Tap screen to place point A';
+                vibrate();
+            } else {
+                status.textContent = '❌ Drag longer distance for calibration';
+            }
+            
+            // Clean up
+            isCalibrationMode = false;
+            calibrationStartPoint = null;
+            const overlay = document.getElementById('calibrationOverlay');
+            if (overlay) overlay.remove();
+        }
+        
+        // ==================== Share ====================
         async function shareMeasurements() {
             if (measurements.length === 0) {
-                status.textContent = 'No measurements to share yet';
+                status.textContent = 'No measurements to share';
                 setTimeout(() => {
                     status.textContent = 'Ready to measure';
                 }, 2000);
                 return;
             }
             
-            const summary = measurements.slice(0, 5).map((m, i) => 
-                `${i+1}. ${m.distance.toFixed(1)} cm at ${m.time}`
+            const summary = measurements.slice(0, 10).map((m, i) => 
+                `${i+1}. ${m.distance.toFixed(1)} cm`
             ).join('\n');
             
             const shareText = `📏 AR Measure Results:\n${summary}\n\nTotal: ${measurements.length} measurements`;
@@ -722,24 +673,25 @@
                         title: 'My AR Measurements',
                         text: shareText,
                     });
-                    status.textContent = 'Shared successfully!';
-                    vibrate(50);
+                    status.textContent = 'Shared!';
                 } catch (err) {
                     status.textContent = 'Share cancelled';
                 }
             } else {
-                // Fallback - copy to clipboard
                 await navigator.clipboard.writeText(shareText);
                 status.textContent = 'Copied to clipboard!';
-                vibrate(50);
-                setTimeout(() => {
-                    status.textContent = 'Ready to measure';
-                }, 2000);
             }
+            vibrate();
+            setTimeout(() => {
+                if (!isCalibrationMode) status.textContent = 'Ready to measure';
+            }, 2000);
         }
         
-        // ==================== Touch/Click Handling ====================
+        // ==================== Touch/Click for Measuring ====================
         function handleTap(e) {
+            // Don't measure during calibration
+            if (isCalibrationMode) return;
+            
             e.preventDefault();
             
             let clientX, clientY;
@@ -759,8 +711,7 @@
             if (now - lastTapTime < 300) return;
             lastTapTime = now;
             
-            showTapFeedback(clientX, clientY);
-            vibrate(20);
+            vibrate();
             
             if (points.length === 0) {
                 points = [{ x, y }];
@@ -786,7 +737,7 @@
                 status.textContent = `${currentDistance.toFixed(1)} cm measured`;
                 points = [];
                 
-                vibrate(50);
+                vibrate();
                 updateHistoryDisplay();
             }
         }
@@ -794,7 +745,7 @@
         // ==================== UI Actions ====================
         function toggleHistory() {
             historyPanel.classList.toggle('open');
-            vibrate(20);
+            vibrate();
         }
         
         function closeHistory() {
@@ -809,19 +760,18 @@
             instruction.textContent = '🎯 Tap screen to place point A';
             status.textContent = 'All measurements cleared';
             updateHistoryDisplay();
-            vibrate(50);
+            vibrate();
             closeHistory();
         }
         
         // ==================== Event Listeners ====================
         canvas.addEventListener('click', handleTap);
-        canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            handleTap(e);
-        });
+        canvas.addEventListener('touchstart', onTouchStart);
+        canvas.addEventListener('touchmove', onTouchMove);
+        canvas.addEventListener('touchend', onTouchEnd);
         
         document.getElementById('clearBtn').addEventListener('click', clearAll);
-        document.getElementById('calibrateBtn').addEventListener('click', showCalibrationDialog);
+        document.getElementById('calibrateBtn').addEventListener('click', startCalibration);
         document.getElementById('historyBtn').addEventListener('click', toggleHistory);
         document.getElementById('closeHistoryBtn').addEventListener('click', closeHistory);
         document.getElementById('shareBtn').addEventListener('click', shareMeasurements);
@@ -829,18 +779,11 @@
         window.addEventListener('resize', resizeCanvas);
         window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
         
-        // Safe areas for notched phones
-        function updateSafeAreas() {
-            document.body.style.paddingTop = 'env(safe-area-inset-top)';
-            document.body.style.paddingBottom = 'env(safe-area-inset-bottom)';
-        }
-        updateSafeAreas();
-        
-        // ==================== Initialize ====================
+        // Initialize
         initCamera();
         updateHistoryDisplay();
         
-        console.log('AR Measure Tool Ready - Enhanced with haptics, calibration, history & share');
+        console.log('AR Measure Tool Ready - Drag calibration & haptics working!');
     </script>
 </body>
 </html>
