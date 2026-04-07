@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>AR Measure Tool - Fixed</title>
+    <title>AR Measure Tool - Drag to Measure</title>
     <style>
         * {
             margin: 0;
@@ -280,27 +280,15 @@
             backdrop-filter: blur(4px);
         }
         
-        .share-btn {
-            background: rgba(255, 255, 255, 0.15);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        /* Calibration mode indicator */
-        .calibration-mode {
+        /* Drag line preview */
+        .drag-line {
             position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9);
-            padding: 20px;
-            border-radius: 20px;
-            text-align: center;
-            z-index: 50;
-            border: 2px solid #FFD700;
-        }
-        
-        .calibration-mode p {
-            margin: 10px 0;
+            background: rgba(255, 215, 0, 0.5);
+            height: 4px;
+            transform-origin: left center;
+            pointer-events: none;
+            z-index: 25;
+            display: none;
         }
     </style>
 </head>
@@ -314,7 +302,7 @@
         </div>
         
         <div class="instruction" id="instruction">
-            🎯 Tap screen to place point A
+            👆 PRESS AND DRAG to measure
         </div>
         
         <div class="overlay">
@@ -334,7 +322,7 @@
             </div>
             
             <div class="status" id="status">
-                Ready to measure
+                Press and drag to measure
             </div>
         </div>
         
@@ -354,7 +342,7 @@
     </div>
 
     <script>
-        // DOM elements
+        // ==================== DOM Elements ====================
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -365,46 +353,92 @@
         const historyList = document.getElementById('historyList');
         const calibrationBadge = document.getElementById('calibrationBadge');
         
-        // State
-        let points = [];
+        // ==================== State ====================
         let measurements = [];
         let currentDistance = 0;
-        let lastTapTime = 0;
         let calibrationFactor = 1.0;
+        
+        // Drag state
+        let isDragging = false;
+        let dragStart = null;
+        let dragCurrent = null;
         
         // Camera parameters
         let focalLength = 800;
         let referenceWidth = 30;
         
-        // Calibration mode
-        let isCalibrationMode = false;
-        let calibrationStartPoint = null;
-        
-        // ==================== Haptic Feedback (iOS compatible) ====================
-        function vibrate() {
-            // Try iOS haptics first
-            if (window.webkit && window.webkit.messageHandlers) {
-                // Native bridge - skip
-            }
-            
-            // Try vibration API
-            if (navigator.vibrate) {
-                navigator.vibrate(30);
-            }
-            
-            // iOS doesn't support vibrate, but we can use visual feedback
-            // Add a quick style flash for visual feedback
+        // ==================== iOS Haptic Feedback (Light/Medium/Heavy) ====================
+        function hapticLight() {
+            // Create a subtle DOM element animation as visual haptic
             const flash = document.createElement('div');
             flash.style.position = 'fixed';
             flash.style.top = '0';
             flash.style.left = '0';
             flash.style.width = '100%';
             flash.style.height = '100%';
-            flash.style.backgroundColor = 'rgba(255,255,255,0.1)';
+            flash.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
             flash.style.pointerEvents = 'none';
             flash.style.zIndex = '9999';
+            flash.style.transition = 'opacity 0.1s';
             document.body.appendChild(flash);
-            setTimeout(() => flash.remove(), 50);
+            setTimeout(() => {
+                flash.style.opacity = '0';
+                setTimeout(() => flash.remove(), 100);
+            }, 10);
+            
+            // Try to use any available haptic API
+            if (window.webkit && window.webkit.messageHandlers) {
+                // WebKit bridge - skip
+            }
+            
+            // Try vibration as fallback
+            if (navigator.vibrate) {
+                navigator.vibrate(10);
+            }
+        }
+        
+        function hapticMedium() {
+            const flash = document.createElement('div');
+            flash.style.position = 'fixed';
+            flash.style.top = '0';
+            flash.style.left = '0';
+            flash.style.width = '100%';
+            flash.style.height = '100%';
+            flash.style.backgroundColor = 'rgba(255, 255, 255, 0.25)';
+            flash.style.pointerEvents = 'none';
+            flash.style.zIndex = '9999';
+            flash.style.transition = 'opacity 0.1s';
+            document.body.appendChild(flash);
+            setTimeout(() => {
+                flash.style.opacity = '0';
+                setTimeout(() => flash.remove(), 100);
+            }, 10);
+            
+            if (navigator.vibrate) {
+                navigator.vibrate(20);
+            }
+        }
+        
+        function hapticHeavy() {
+            const flash = document.createElement('div');
+            flash.style.position = 'fixed';
+            flash.style.top = '0';
+            flash.style.left = '0';
+            flash.style.width = '100%';
+            flash.style.height = '100%';
+            flash.style.backgroundColor = 'rgba(255, 215, 0, 0.3)';
+            flash.style.pointerEvents = 'none';
+            flash.style.zIndex = '9999';
+            flash.style.transition = 'opacity 0.15s';
+            document.body.appendChild(flash);
+            setTimeout(() => {
+                flash.style.opacity = '0';
+                setTimeout(() => flash.remove(), 150);
+            }, 10);
+            
+            if (navigator.vibrate) {
+                navigator.vibrate(40);
+            }
         }
         
         // ==================== Camera ====================
@@ -423,8 +457,9 @@
                 resizeCanvas();
                 requestAnimationFrame(draw);
                 
-                status.textContent = 'Camera ready! Tap screen to measure';
-                instruction.textContent = '🎯 Tap screen to place point A';
+                status.textContent = 'Camera ready! Press and drag to measure';
+                instruction.textContent = '👆 PRESS AND DRAG to measure';
+                hapticLight();
                 
             } catch (err) {
                 console.error('Camera error:', err);
@@ -453,26 +488,25 @@
                 drawMeasurement(measure);
             });
             
-            // Draw current points
-            if (points.length >= 1) {
-                drawPoint(points[0], '#4CAF50', 'A', 'Start');
-                if (points.length >= 2) {
-                    drawPoint(points[1], '#FF5252', 'B', 'End');
-                    drawLine(points[0], points[1]);
-                    const midX = (points[0].x + points[1].x) / 2;
-                    const midY = (points[0].y + points[1].y) / 2;
-                    drawText(`${currentDistance.toFixed(1)} cm`, midX, midY - 15, '#FFD700', 'bold 18px');
-                }
-            }
-            
-            // Draw calibration mode indicator
-            if (isCalibrationMode && calibrationStartPoint) {
-                ctx.beginPath();
-                ctx.moveTo(calibrationStartPoint.x, calibrationStartPoint.y);
-                // Draw line following touch
-                ctx.strokeStyle = '#FFD700';
-                ctx.lineWidth = 4;
-                ctx.stroke();
+            // Draw current drag line
+            if (isDragging && dragStart && dragCurrent) {
+                drawDragLine(dragStart, dragCurrent);
+                
+                // Calculate and show live distance
+                const dx = dragStart.x - dragCurrent.x;
+                const dy = dragStart.y - dragCurrent.y;
+                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+                const liveDistance = calculateDistance(pixelDistance);
+                
+                // Draw live distance at midpoint
+                const midX = (dragStart.x + dragCurrent.x) / 2;
+                const midY = (dragStart.y + dragCurrent.y) / 2 - 20;
+                drawText(`${liveDistance.toFixed(1)} cm`, midX, midY, '#FFD700', 'bold 20px');
+                
+                // Draw start point
+                drawPoint(dragStart, '#4CAF50', 'A', 'Start');
+                // Draw end point (current)
+                drawPoint(dragCurrent, '#FF5252', 'B', 'End');
             }
             
             requestAnimationFrame(draw);
@@ -496,6 +530,17 @@
             ctx.fillText(text, point.x + 18, point.y + 5);
         }
         
+        function drawDragLine(p1, p2) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 6;
+            ctx.setLineDash([10, 8]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
         function drawLine(p1, p2) {
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
@@ -516,11 +561,11 @@
         }
         
         function drawMeasurement(measure) {
-            drawPoint(measure.p1, '#9C27B0', measure.id.toString(), '');
-            drawPoint(measure.p2, '#9C27B0', measure.id.toString(), '');
-            drawLine(measure.p1, measure.p2);
-            const midX = (measure.p1.x + measure.p2.x) / 2;
-            const midY = (measure.p1.y + measure.p2.y) / 2;
+            drawPoint(measure.start, '#9C27B0', measure.id.toString(), '');
+            drawPoint(measure.end, '#9C27B0', measure.id.toString(), '');
+            drawLine(measure.start, measure.end);
+            const midX = (measure.start.x + measure.end.x) / 2;
+            const midY = (measure.start.y + measure.end.y) / 2;
             drawText(`${measure.distance.toFixed(1)} cm`, midX, midY - 15, '#9C27B0', 'bold 16px');
         }
         
@@ -533,7 +578,7 @@
         
         function updateHistoryDisplay() {
             if (measurements.length === 0) {
-                historyList.innerHTML = '<div class="history-empty">📭 No measurements yet</div>';
+                historyList.innerHTML = '<div class="history-empty">📭 No measurements yet\nPress and drag to measure!</div>';
                 return;
             }
             
@@ -545,119 +590,187 @@
             `).join('');
         }
         
-        // ==================== Calibration with Drag ====================
-        function startCalibration() {
-            isCalibrationMode = true;
-            calibrationStartPoint = null;
-            instruction.textContent = '📐 DRAG across a 10cm object (like a credit card)';
-            status.textContent = 'Press and drag from one end to the other';
-            vibrate();
-            
-            // Show calibration instruction overlay
-            const overlay = document.createElement('div');
-            overlay.className = 'calibration-mode';
-            overlay.id = 'calibrationOverlay';
-            overlay.innerHTML = `
-                <p>📐 Calibration Mode</p>
-                <p style="font-size: 12px; color: #FFD700;">Press and drag across a 10cm object</p>
-                <p style="font-size: 10px; margin-top: 10px;">Example: credit card (~8.5cm) or sticky note (~7.6cm)</p>
-                <button id="cancelCalibBtn" style="margin-top: 15px; background: #f44336; padding: 10px 20px;">Cancel</button>
-            `;
-            document.body.appendChild(overlay);
-            
-            document.getElementById('cancelCalibBtn').onclick = () => {
-                isCalibrationMode = false;
-                overlay.remove();
-                instruction.textContent = '🎯 Tap screen to place point A';
-                status.textContent = 'Calibration cancelled';
-                vibrate();
-            };
-        }
-        
-        // Touch handlers for calibration
+        // ==================== Drag to Measure ====================
         function onTouchStart(e) {
-            if (!isCalibrationMode) return;
-            
             e.preventDefault();
+            
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            calibrationStartPoint = { x, y };
-            status.textContent = 'Dragging... release at other end';
-            vibrate();
+            isDragging = true;
+            dragStart = { x, y };
+            dragCurrent = { x, y };
+            
+            instruction.textContent = '📍 DRAG to measure distance';
+            status.textContent = 'Drag to draw line';
+            hapticLight();
         }
         
         function onTouchMove(e) {
-            if (!isCalibrationMode || !calibrationStartPoint) return;
-            
+            if (!isDragging) return;
             e.preventDefault();
+            
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
-            const currentX = (touch.clientX - rect.left) * (canvas.width / rect.width);
-            const currentY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+            const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            // Draw live line on canvas
-            ctx.beginPath();
-            ctx.moveTo(calibrationStartPoint.x, calibrationStartPoint.y);
-            ctx.lineTo(currentX, currentY);
-            ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = 4;
-            ctx.stroke();
+            dragCurrent = { x, y };
+            
+            // Update live distance display
+            const dx = dragStart.x - dragCurrent.x;
+            const dy = dragStart.y - dragCurrent.y;
+            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+            const liveDistance = calculateDistance(pixelDistance);
+            distanceValue.textContent = liveDistance.toFixed(2);
+            
+            hapticLight(); // Light feedback while dragging
         }
         
         function onTouchEnd(e) {
-            if (!isCalibrationMode || !calibrationStartPoint) {
+            if (!isDragging || !dragStart || !dragCurrent) {
+                isDragging = false;
+                dragStart = null;
+                dragCurrent = null;
                 return;
             }
             
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            const touch = e.changedTouches[0];
-            const endX = (touch.clientX - rect.left) * (canvas.width / rect.width);
-            const endY = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            const dx = calibrationStartPoint.x - endX;
-            const dy = calibrationStartPoint.y - endY;
+            // Calculate final distance
+            const dx = dragStart.x - dragCurrent.x;
+            const dy = dragStart.y - dragCurrent.y;
             const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+            currentDistance = calculateDistance(pixelDistance);
             
-            if (pixelDistance > 20) {
-                // Assume standard credit card width ~8.5cm
-                const assumedCm = 8.5;
-                const rawCm = (pixelDistance / focalLength) * referenceWidth;
-                calibrationFactor = assumedCm / rawCm;
+            // Save measurement
+            const measurement = {
+                id: measurements.length + 1,
+                start: { ...dragStart },
+                end: { ...dragCurrent },
+                distance: currentDistance,
+                time: new Date().toLocaleTimeString()
+            };
+            
+            measurements.unshift(measurement);
+            distanceValue.textContent = currentDistance.toFixed(2);
+            instruction.textContent = '✓ Saved! Press and drag again to measure';
+            status.textContent = `${currentDistance.toFixed(1)} cm measured`;
+            
+            updateHistoryDisplay();
+            
+            // Heavy haptic for measurement complete
+            hapticHeavy();
+            
+            // Reset drag state
+            isDragging = false;
+            dragStart = null;
+            dragCurrent = null;
+            
+            // Reset instruction after 2 seconds
+            setTimeout(() => {
+                if (!isDragging) {
+                    instruction.textContent = '👆 PRESS AND DRAG to measure';
+                }
+            }, 2000);
+        }
+        
+        // ==================== Calibration ====================
+        function startCalibration() {
+            instruction.textContent = '📐 DRAG across a 10cm object (credit card ~8.5cm)';
+            status.textContent = 'Drag to calibrate - use a known length object';
+            hapticMedium();
+            
+            let calStart = null;
+            let calEnd = null;
+            
+            const handleCalStart = (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+                const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+                calStart = { x, y };
+                status.textContent = 'Drag to the other end...';
+                hapticLight();
+            };
+            
+            const handleCalMove = (e) => {
+                if (!calStart) return;
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+                const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+                calEnd = { x, y };
                 
-                calibrationBadge.style.display = 'block';
-                setTimeout(() => {
-                    calibrationBadge.style.opacity = '0';
+                // Draw preview
+                ctx.beginPath();
+                ctx.moveTo(calStart.x, calStart.y);
+                ctx.lineTo(calEnd.x, calEnd.y);
+                ctx.strokeStyle = '#FFD700';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            };
+            
+            const handleCalEnd = (e) => {
+                if (!calStart || !calEnd) {
+                    cleanup();
+                    return;
+                }
+                
+                e.preventDefault();
+                const dx = calStart.x - calEnd.x;
+                const dy = calStart.y - calEnd.y;
+                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (pixelDistance > 30) {
+                    // Use 8.5cm as reference (credit card width)
+                    const assumedCm = 8.5;
+                    const rawCm = (pixelDistance / focalLength) * referenceWidth;
+                    calibrationFactor = assumedCm / rawCm;
+                    
+                    calibrationBadge.style.display = 'block';
                     setTimeout(() => {
-                        calibrationBadge.style.display = 'none';
-                        calibrationBadge.style.opacity = '1';
-                    }, 500);
-                }, 3000);
+                        calibrationBadge.style.opacity = '0';
+                        setTimeout(() => {
+                            calibrationBadge.style.display = 'none';
+                            calibrationBadge.style.opacity = '1';
+                        }, 500);
+                    }, 3000);
+                    
+                    status.textContent = `✓ Calibrated! Measurements will be more accurate.`;
+                    instruction.textContent = '👆 PRESS AND DRAG to measure';
+                    hapticHeavy();
+                } else {
+                    status.textContent = '❌ Drag a longer distance for calibration';
+                    setTimeout(() => {
+                        status.textContent = 'Press and drag to measure';
+                    }, 2000);
+                }
                 
-                status.textContent = `✓ Calibrated! (Factor: ${calibrationFactor.toFixed(2)})`;
-                instruction.textContent = '🎯 Tap screen to place point A';
-                vibrate();
-            } else {
-                status.textContent = '❌ Drag longer distance for calibration';
-            }
+                cleanup();
+            };
             
-            // Clean up
-            isCalibrationMode = false;
-            calibrationStartPoint = null;
-            const overlay = document.getElementById('calibrationOverlay');
-            if (overlay) overlay.remove();
+            const cleanup = () => {
+                canvas.removeEventListener('touchstart', handleCalStart);
+                canvas.removeEventListener('touchmove', handleCalMove);
+                canvas.removeEventListener('touchend', handleCalEnd);
+                isDragging = false;
+            };
+            
+            canvas.addEventListener('touchstart', handleCalStart);
+            canvas.addEventListener('touchmove', handleCalMove);
+            canvas.addEventListener('touchend', handleCalEnd);
         }
         
         // ==================== Share ====================
         async function shareMeasurements() {
             if (measurements.length === 0) {
                 status.textContent = 'No measurements to share';
-                setTimeout(() => {
-                    status.textContent = 'Ready to measure';
-                }, 2000);
+                setTimeout(() => status.textContent = 'Press and drag to measure', 2000);
                 return;
             }
             
@@ -674,78 +787,25 @@
                         text: shareText,
                     });
                     status.textContent = 'Shared!';
+                    hapticMedium();
                 } catch (err) {
                     status.textContent = 'Share cancelled';
                 }
             } else {
                 await navigator.clipboard.writeText(shareText);
                 status.textContent = 'Copied to clipboard!';
+                hapticLight();
             }
-            vibrate();
+            
             setTimeout(() => {
-                if (!isCalibrationMode) status.textContent = 'Ready to measure';
+                if (!isDragging) status.textContent = 'Press and drag to measure';
             }, 2000);
-        }
-        
-        // ==================== Touch/Click for Measuring ====================
-        function handleTap(e) {
-            // Don't measure during calibration
-            if (isCalibrationMode) return;
-            
-            e.preventDefault();
-            
-            let clientX, clientY;
-            if (e.touches) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
-            }
-            
-            const rect = canvas.getBoundingClientRect();
-            const x = (clientX - rect.left) * (canvas.width / rect.width);
-            const y = (clientY - rect.top) * (canvas.height / rect.height);
-            
-            const now = Date.now();
-            if (now - lastTapTime < 300) return;
-            lastTapTime = now;
-            
-            vibrate();
-            
-            if (points.length === 0) {
-                points = [{ x, y }];
-                instruction.textContent = '📍 Tap again to measure distance';
-                status.textContent = 'Tap to place point B';
-            } else if (points.length === 1) {
-                const p2 = { x, y };
-                const dx = points[0].x - p2.x;
-                const dy = points[0].y - p2.y;
-                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-                currentDistance = calculateDistance(pixelDistance);
-                
-                measurements.unshift({
-                    id: Date.now(),
-                    p1: { ...points[0] },
-                    p2: { ...p2 },
-                    distance: currentDistance,
-                    time: new Date().toLocaleTimeString()
-                });
-                
-                distanceValue.textContent = currentDistance.toFixed(2);
-                instruction.textContent = '✓ Saved! Tap anywhere to start new measurement';
-                status.textContent = `${currentDistance.toFixed(1)} cm measured`;
-                points = [];
-                
-                vibrate();
-                updateHistoryDisplay();
-            }
         }
         
         // ==================== UI Actions ====================
         function toggleHistory() {
             historyPanel.classList.toggle('open');
-            vibrate();
+            hapticLight();
         }
         
         function closeHistory() {
@@ -754,18 +814,16 @@
         
         function clearAll() {
             measurements = [];
-            points = [];
             currentDistance = 0;
             distanceValue.textContent = '0.00';
-            instruction.textContent = '🎯 Tap screen to place point A';
+            instruction.textContent = '👆 PRESS AND DRAG to measure';
             status.textContent = 'All measurements cleared';
             updateHistoryDisplay();
-            vibrate();
+            hapticMedium();
             closeHistory();
         }
         
         // ==================== Event Listeners ====================
-        canvas.addEventListener('click', handleTap);
         canvas.addEventListener('touchstart', onTouchStart);
         canvas.addEventListener('touchmove', onTouchMove);
         canvas.addEventListener('touchend', onTouchEnd);
@@ -783,7 +841,7 @@
         initCamera();
         updateHistoryDisplay();
         
-        console.log('AR Measure Tool Ready - Drag calibration & haptics working!');
+        console.log('AR Measure Tool Ready - Drag to measure with haptic feedback!');
     </script>
 </body>
 </html>
