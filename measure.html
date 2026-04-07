@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-    <title>AR Measure Tool - REAL Haptic</title>
+    <title>AR Measure Tool - OVERKILL HAPTIC</title>
     <style>
         * {
             margin: 0;
@@ -46,38 +46,70 @@
             touch-action: none;
         }
         
-        /* HAPTIC ANIMATION - This actually works on iPhone! */
-        @keyframes hapticLight {
-            0% { background-color: rgba(255, 255, 255, 0); }
-            15% { background-color: rgba(255, 255, 255, 0.15); }
-            30% { background-color: rgba(255, 255, 255, 0); }
-            100% { background-color: rgba(255, 255, 255, 0); }
+        /* ========== OVERKILL HAPTIC ANIMATIONS ========== */
+        @keyframes hapticExplosion {
+            0% { 
+                background-color: rgba(255, 255, 255, 0);
+                transform: scale(1);
+            }
+            10% { 
+                background-color: rgba(255, 255, 255, 1);
+                transform: scale(1.02);
+            }
+            30% { 
+                background-color: rgba(255, 255, 255, 0.5);
+                transform: scale(0.99);
+            }
+            50% { 
+                background-color: rgba(255, 255, 255, 0.2);
+                transform: scale(1);
+            }
+            100% { 
+                background-color: rgba(255, 255, 255, 0);
+                transform: scale(1);
+            }
         }
         
-        @keyframes hapticMedium {
-            0% { background-color: rgba(255, 255, 255, 0); }
-            15% { background-color: rgba(255, 255, 255, 0.3); }
-            30% { background-color: rgba(255, 255, 255, 0); }
-            100% { background-color: rgba(255, 255, 255, 0); }
+        @keyframes hapticRing {
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 50px rgba(255, 215, 0, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 215, 0, 0);
+            }
         }
         
-        @keyframes hapticHeavy {
-            0% { background-color: rgba(255, 215, 0, 0); }
-            15% { background-color: rgba(255, 215, 0, 0.4); }
-            30% { background-color: rgba(255, 215, 0, 0); }
-            100% { background-color: rgba(255, 215, 0, 0); }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
         }
         
-        .haptic-flash {
+        .haptic-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 9999;
-            animation-duration: 0.1s;
+            z-index: 10000;
+            animation-duration: 0.15s;
             animation-fill-mode: forwards;
+        }
+        
+        .haptic-ring {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10001;
         }
         
         .overlay {
@@ -99,6 +131,12 @@
             padding: 20px;
             margin-bottom: 15px;
             text-align: center;
+            transition: all 0.05s ease;
+        }
+        
+        .distance-card.pulse {
+            transform: scale(1.05);
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
         }
         
         .distance-label {
@@ -138,14 +176,14 @@
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.1s;
             min-height: 52px;
             touch-action: manipulation;
         }
         
         button:active {
-            transform: scale(0.97);
-            background: rgba(255, 255, 255, 0.2);
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.3);
         }
         
         .status {
@@ -171,6 +209,13 @@
             z-index: 20;
             pointer-events: none;
             top: max(20px, env(safe-area-inset-top));
+            transition: all 0.1s;
+        }
+        
+        .instruction.flash {
+            background: rgba(255, 215, 0, 0.9);
+            color: black;
+            transform: scale(1.02);
         }
         
         .crosshair {
@@ -313,6 +358,23 @@
             pointer-events: none;
             backdrop-filter: blur(4px);
         }
+        
+        /* Vibration animation for the whole body */
+        @keyfullframes fullShake {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-2px, -2px); }
+            20% { transform: translate(2px, -2px); }
+            30% { transform: translate(-2px, 2px); }
+            40% { transform: translate(2px, 2px); }
+            50% { transform: translate(-1px, 0); }
+            60% { transform: translate(1px, 0); }
+            70% { transform: translate(0, -1px); }
+            80% { transform: translate(0, 1px); }
+        }
+        
+        .vibrate-shake {
+            animation: fullShake 0.15s ease-in-out;
+        }
     </style>
 </head>
 <body>
@@ -329,7 +391,7 @@
         </div>
         
         <div class="overlay">
-            <div class="distance-card">
+            <div class="distance-card" id="distanceCard">
                 <div class="distance-label">MEASURED DISTANCE</div>
                 <div class="distance-value">
                     <span id="distanceValue">0.00</span>
@@ -365,69 +427,92 @@
     </div>
 
     <script>
-        // ==================== DOM Elements ====================
+        // DOM elements
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const distanceValue = document.getElementById('distanceValue');
         const instruction = document.getElementById('instruction');
         const status = document.getElementById('status');
+        const distanceCard = document.getElementById('distanceCard');
         const historyPanel = document.getElementById('historyPanel');
         const historyList = document.getElementById('historyList');
         const calibrationBadge = document.getElementById('calibrationBadge');
         
-        // ==================== State ====================
+        // State
         let measurements = [];
         let currentDistance = 0;
         let calibrationFactor = 1.0;
-        
-        // Drag state
         let isDragging = false;
         let dragStart = null;
         let dragCurrent = null;
-        
-        // Edit state
         let isEditing = false;
         let editingMeasurement = null;
         let editingPoint = null;
         
-        // Camera parameters
         let focalLength = 800;
         let referenceWidth = 30;
         
-        // ==================== REAL HAPTIC FEEDBACK (CSS Animation) ====================
-        function hapticLight() {
+        // ========== OVERKILL HAPTIC - MULTIPLE LAYERS OF FEEDBACK ==========
+        function overkillHaptic(intensity) {
+            // LAYER 1: Full screen flash
             const flash = document.createElement('div');
-            flash.className = 'haptic-flash';
-            flash.style.animationName = 'hapticLight';
-            document.body.appendChild(flash);
-            setTimeout(() => flash.remove(), 100);
-        }
-        
-        function hapticMedium() {
-            const flash = document.createElement('div');
-            flash.className = 'haptic-flash';
-            flash.style.animationName = 'hapticMedium';
-            document.body.appendChild(flash);
-            setTimeout(() => flash.remove(), 100);
-        }
-        
-        function hapticHeavy() {
-            const flash = document.createElement('div');
-            flash.className = 'haptic-flash';
-            flash.style.animationName = 'hapticHeavy';
+            flash.className = 'haptic-overlay';
+            if (intensity === 'light') {
+                flash.style.animationName = 'hapticExplosion';
+                flash.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+            } else if (intensity === 'medium') {
+                flash.style.animationName = 'hapticExplosion';
+                flash.style.backgroundColor = 'rgba(255, 255, 255, 1)';
+            } else {
+                flash.style.animationName = 'hapticExplosion';
+                flash.style.backgroundColor = 'rgba(255, 215, 0, 1)';
+            }
             document.body.appendChild(flash);
             setTimeout(() => flash.remove(), 150);
             
-            // Also add a subtle scale to the distance card for extra feedback
-            const card = document.querySelector('.distance-card');
-            card.style.transform = 'scale(0.98)';
-            setTimeout(() => {
-                card.style.transform = 'scale(1)';
-            }, 100);
+            // LAYER 2: Ring ripple from center
+            const ring = document.createElement('div');
+            ring.className = 'haptic-ring';
+            if (intensity === 'light') {
+                ring.style.animation = 'hapticRing 0.2s ease-out';
+                ring.style.boxShadow = '0 0 0 0 rgba(255, 255, 255, 0.8)';
+            } else if (intensity === 'medium') {
+                ring.style.animation = 'hapticRing 0.2s ease-out';
+                ring.style.boxShadow = '0 0 0 0 rgba(255, 255, 255, 1)';
+            } else {
+                ring.style.animation = 'hapticRing 0.25s ease-out';
+                ring.style.boxShadow = '0 0 0 0 rgba(255, 215, 0, 1)';
+            }
+            document.body.appendChild(ring);
+            setTimeout(() => ring.remove(), 250);
+            
+            // LAYER 3: Distance card pulse
+            distanceCard.classList.add('pulse');
+            setTimeout(() => distanceCard.classList.remove('pulse'), 150);
+            
+            // LAYER 4: Instruction flash
+            instruction.classList.add('flash');
+            setTimeout(() => instruction.classList.remove('flash'), 150);
+            
+            // LAYER 5: Screen shake (heavy only)
+            if (intensity === 'heavy') {
+                document.body.classList.add('vibrate-shake');
+                setTimeout(() => document.body.classList.remove('vibrate-shake'), 150);
+            }
+            
+            // LAYER 6: Try actual vibration (if available)
+            if (navigator.vibrate) {
+                if (intensity === 'light') navigator.vibrate(10);
+                else if (intensity === 'medium') navigator.vibrate(20);
+                else navigator.vibrate(40);
+            }
+            
+            // Console log for debugging
+            console.log(`🔥 HAPTIC: ${intensity}`);
         }
         
-        // ==================== Camera ====================
+        // Camera init
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -445,7 +530,7 @@
                 
                 status.textContent = 'Camera ready! Press and drag to measure';
                 instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
-                hapticLight();
+                overkillHaptic('light');
                 
             } catch (err) {
                 console.error('Camera error:', err);
@@ -454,7 +539,6 @@
             }
         }
         
-        // ==================== Drawing ====================
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -608,7 +692,6 @@
             return null;
         }
         
-        // ==================== Touch Handling ====================
         function onTouchStart(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
@@ -624,14 +707,14 @@
                 editingPoint = hit.point;
                 instruction.textContent = `✏️ Moving ${editingPoint === 'start' ? 'Point A' : 'Point B'} - drag to reposition`;
                 status.textContent = 'Drag to move the point';
-                hapticMedium();
+                overkillHaptic('medium');
             } else {
                 isDragging = true;
                 dragStart = { x, y };
                 dragCurrent = { x, y };
                 instruction.textContent = '📍 DRAG to measure distance';
                 status.textContent = 'Drag to draw line';
-                hapticLight();
+                overkillHaptic('light');
             }
         }
         
@@ -642,8 +725,8 @@
             const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
             const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
             
-            // HAPTIC ON EVERY MOVE!
-            hapticLight();
+            // EVERY SINGLE MOVE = HAPTIC FEEDBACK
+            overkillHaptic('light');
             
             if (isDragging && dragStart) {
                 dragCurrent = { x, y };
@@ -689,14 +772,14 @@
                 instruction.textContent = '✓ Saved! Press and drag again to measure';
                 status.textContent = `${finalDistance.toFixed(1)} cm measured`;
                 updateHistoryDisplay();
-                hapticHeavy();
+                overkillHaptic('heavy');
             }
             
             if (isEditing && editingMeasurement) {
                 const finalDistance = editingMeasurement.distance;
                 instruction.textContent = '✓ Point moved! Press and drag for new measurement';
                 status.textContent = `Updated: ${finalDistance.toFixed(1)} cm`;
-                hapticHeavy();
+                overkillHaptic('heavy');
             }
             
             isDragging = false;
@@ -713,11 +796,10 @@
             }, 2000);
         }
         
-        // ==================== Calibration ====================
         function startCalibration() {
             instruction.textContent = '📐 DRAG across a 10cm object (credit card ~8.5cm)';
             status.textContent = 'Drag to calibrate - use a known length object';
-            hapticMedium();
+            overkillHaptic('medium');
             
             let calStart = null;
             let calEnd = null;
@@ -730,13 +812,13 @@
                 const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
                 calStart = { x, y };
                 status.textContent = 'Drag to the other end...';
-                hapticLight();
+                overkillHaptic('light');
             };
             
             const handleCalMove = (e) => {
                 if (!calStart) return;
                 e.preventDefault();
-                hapticLight();
+                overkillHaptic('light');
                 const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
                 const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
@@ -778,7 +860,7 @@
                     
                     status.textContent = `✓ Calibrated! Measurements will be more accurate.`;
                     instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
-                    hapticHeavy();
+                    overkillHaptic('heavy');
                 } else {
                     status.textContent = '❌ Drag a longer distance for calibration';
                     setTimeout(() => {
@@ -800,7 +882,6 @@
             canvas.addEventListener('touchend', handleCalEnd);
         }
         
-        // ==================== Share ====================
         async function shareMeasurements() {
             if (measurements.length === 0) {
                 status.textContent = 'No measurements to share';
@@ -821,14 +902,14 @@
                         text: shareText,
                     });
                     status.textContent = 'Shared!';
-                    hapticMedium();
+                    overkillHaptic('medium');
                 } catch (err) {
                     status.textContent = 'Share cancelled';
                 }
             } else {
                 await navigator.clipboard.writeText(shareText);
                 status.textContent = 'Copied to clipboard!';
-                hapticLight();
+                overkillHaptic('light');
             }
             
             setTimeout(() => {
@@ -838,7 +919,7 @@
         
         function toggleHistory() {
             historyPanel.classList.toggle('open');
-            hapticLight();
+            overkillHaptic('light');
         }
         
         function closeHistory() {
@@ -852,11 +933,10 @@
             instruction.textContent = '👆 PRESS AND DRAG to measure | ✏️ Tap circle to edit';
             status.textContent = 'All measurements cleared';
             updateHistoryDisplay();
-            hapticMedium();
+            overkillHaptic('medium');
             closeHistory();
         }
         
-        // ==================== Event Listeners ====================
         canvas.addEventListener('touchstart', onTouchStart);
         canvas.addEventListener('touchmove', onTouchMove);
         canvas.addEventListener('touchend', onTouchEnd);
@@ -873,7 +953,7 @@
         initCamera();
         updateHistoryDisplay();
         
-        console.log('AR Measure Tool Ready - CSS HAPTIC works on iPhone!');
+        console.log('🔥 OVERKILL HAPTIC MODE ACTIVATED - You WILL feel/see this!');
     </script>
 </body>
 </html>
